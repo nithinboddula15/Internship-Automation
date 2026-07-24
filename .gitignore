@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+
+resume/
+data/
+
+config_local.py
+
+mail1.py
+test_resume.py
+
+.vscode/
+.env

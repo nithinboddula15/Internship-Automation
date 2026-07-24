@@ -1,0 +1,33 @@
+python
+c
+c++
+java
+sql
+excel
+power bi
+machine learning
+deep learning
+computer vision
+opencv
+nlp
+llm
+genai
+git
+github
+tensorflow
+keras
+pytorch
+pandas
+numpy
+matplotlib
+scikit-learn
+statistics
+docker
+aws
+linux
+data science
+data analysis
+streamlit
+flask
+fastapi
+playwright
