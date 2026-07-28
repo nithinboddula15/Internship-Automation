@@ -3,6 +3,68 @@ from playwright.sync_api import sync_playwright
 
 from filters import role_matches
 from filters import recent_post
+# pyrefly: ignore [missing-import]
+from playwright.sync_api import TimeoutError
+import time
+
+def extract_basic_info(card):
+
+    internship_id = int(card.get_attribute("internshipid"))
+
+    title = card.locator(".job-title-href").inner_text().lower()
+
+    posted_time = get_posted_time(card)
+
+    return {
+        "internship_id": internship_id,
+        "title": title,
+        "posted_time": posted_time
+    }
+
+
+def open_page(page, page_number):
+
+    if page_number == 1:
+        url = "https://internshala.com/internships/"
+    else:
+        url = f"https://internshala.com/internships/page-{page_number}/"
+
+    print(f"\nOpening Page {page_number}")
+    print(url)
+
+    for attempt in range(3):
+
+        try:
+
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=20000
+            )
+
+            page.locator(".individual_internship").first.wait_for(timeout=10000)
+
+            return True
+
+        except TimeoutError:
+
+            print(f"Timeout opening page {page_number}. Retry {attempt + 1}/3")
+            time.sleep(3)
+
+        except Exception as e:
+
+            print(f"Error opening page {page_number}: {e}")
+            time.sleep(3)
+
+    return False
+
+def close_browser(playwright, browser):
+
+    input("Press Enter to close browser...")
+
+    browser.close()
+
+    playwright.stop()
 
 def open_browser():
 
@@ -13,27 +75,6 @@ def open_browser():
     page = browser.new_page()
 
     return playwright, browser, page
-
-def close_browser(playwright, browser):
-
-    input("Press Enter to close browser...")
-
-    browser.close()
-
-    playwright.stop()
-
-def open_page(page, page_number):
-
-    if page_number == 1:
-        url = "https://internshala.com/internships/"
-    else:
-        url = f"https://internshala.com/internships/page-{page_number}/"
-
-    print(f"\nOpening Page {page_number}")
-
-    page.goto(url, wait_until="domcontentloaded")
-
-    page.locator(".individual_internship").first.wait_for(timeout=10000)
 
 
 def get_cards(page):
@@ -69,7 +110,8 @@ def get_duration(card):
     return "Not Specified"
 
 
-def extract_internship(card):
+# pyrefly: ignore [parse-error]
+def extract_full_info(card, browser):
 
     internship_id = int(card.get_attribute("internshipid"))
 
@@ -91,6 +133,8 @@ def extract_internship(card):
 
     link = "https://internshala.com" + link
 
+    description = get_internship_description(browser, link)
+
     return {
         "internship_id": internship_id,
         "title": title,
@@ -99,10 +143,11 @@ def extract_internship(card):
         "stipend": stipend,
         "duration": duration,
         "skills": skills,
-        "link": link
+        "link": link,
+        "description": description
     }
 
-def scrape_page(page, existing_ids):
+def scrape_page(page, browser, existing_ids):
 
     cards = get_cards(page)
 
@@ -112,24 +157,29 @@ def scrape_page(page, existing_ids):
 
         card = cards.nth(i)
 
-        internship = extract_internship(card)
+        # ---------- Basic Info ----------
+        basic = extract_basic_info(card)
 
-        if internship["internship_id"] in existing_ids:
+        # Duplicate
+        if basic["internship_id"] in existing_ids:
             print("Duplicate - Skipping")
             continue
 
-        if not role_matches(internship["title"]):
+        # Role Filter
+        if not role_matches(basic["title"]):
             print("Role not matched")
             continue
 
-        posted_time = get_posted_time(card)
-
-        if posted_time is None:
+        # Posted Time
+        if basic["posted_time"] is None:
             continue
 
-        if not recent_post(posted_time):
+        if not recent_post(basic["posted_time"]):
             print("Old Internship")
             continue
+
+        # ---------- Full Extraction ----------
+        internship = extract_full_info(card, browser)
 
         new_internships.append(internship)
 
@@ -152,9 +202,13 @@ def scrape_internships(existing_ids):
 
     while True:
 
-        open_page(page, page_number)
+        success = open_page(page, page_number)
 
-        page_internships = scrape_page(page, existing_ids)
+        if not success:
+            print("Could not open page.")
+            break
+
+        page_internships = scrape_page(page, browser, existing_ids)
 
         if len(page_internships) == 0:
             print("No new internships on this page.")
@@ -167,3 +221,41 @@ def scrape_internships(existing_ids):
     close_browser(playwright, browser)
 
     return all_new_internships
+
+
+
+def get_internship_description(browser, link):
+
+    new_page = browser.new_page()
+
+    description = ""
+
+    try:
+
+        new_page.goto(
+            link,
+            wait_until="domcontentloaded",
+            timeout=15000
+        )
+
+        new_page.wait_for_timeout(1000)
+
+        description = "\n".join(
+            new_page.locator(".text-container").all_inner_texts()
+        )
+
+    except TimeoutError:
+
+        print(f"Timeout while opening:\n{link}")
+
+    except Exception as e:
+
+        print("Description Error:", e)
+
+    finally:
+
+        new_page.close()
+
+    return description
+
+
