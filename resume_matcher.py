@@ -1,23 +1,44 @@
-def load_skills(file_path="skills.txt"):
-
-    with open(file_path, "r", encoding="utf-8") as file:
-
-        skills = [line.strip().lower() for line in file if line.strip()]
-
-    return skills
+from career_profile import SKILL_WEIGHTS
 
 
-def extract_resume_skills(resume_text):
+def calculate_match_score(resume_skills, internship_skills):
 
-    known_skills = load_skills()
+    resume_set = set(skill.lower() for skill in resume_skills)
+    internship_set = set(skill.lower() for skill in internship_skills)
 
-    resume_text = resume_text.lower()
+    matched = []
+    missing = []
 
-    found_skills = []
+    earned_weight = 0
+    total_weight = 0
 
-    for skill in known_skills:
+    for skill in internship_set:
 
-        if skill in resume_text:
-            found_skills.append(skill)
+        weight = SKILL_WEIGHTS.get(skill, 1)
 
-    return found_skills
+        total_weight += weight
+
+        if skill in resume_set:
+
+            matched.append(skill)
+
+            earned_weight += weight
+
+        else:
+
+            missing.append(skill)
+
+    if total_weight == 0:
+
+        score = 0
+
+    else:
+
+        score = round((earned_weight / total_weight) * 100)
+    print("Matched:", matched)
+    print("Missing:", missing)
+    print("Total Weight:", total_weight)
+    print("Earned Weight:", earned_weight)
+    print("Score:", score)
+
+    return score, sorted(matched), sorted(missing)

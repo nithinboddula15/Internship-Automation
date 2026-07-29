@@ -3,14 +3,6 @@ from utils import convert_to_days
 MAX_DAYS = 7
 
 allowed_keywords = [
-    "helpdesk",
-    "hr",
-    "recruiter",
-    "creative",
-    "marketing",
-    "graphic design",
-    "business development",
-    "sales",
     "ai",
     "artificial intelligence",
     "machine learning",

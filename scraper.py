@@ -3,6 +3,7 @@ from playwright.sync_api import sync_playwright
 
 from filters import role_matches
 from filters import recent_post
+from resume_engine import match_resume_to_internship
 # pyrefly: ignore [missing-import]
 from playwright.sync_api import TimeoutError
 import time
@@ -25,9 +26,9 @@ def extract_basic_info(card):
 def open_page(page, page_number):
 
     if page_number == 1:
-        url = "https://internshala.com/internships/"
+        url = "https://internshala.com/internships/data-science-internship/"
     else:
-        url = f"https://internshala.com/internships/page-{page_number}/"
+        url = f"https://internshala.com/internships/data-science-internship/page-{page_number}/"
 
     print(f"\nOpening Page {page_number}")
     print(url)
@@ -147,7 +148,7 @@ def extract_full_info(card, browser):
         "description": description
     }
 
-def scrape_page(page, browser, existing_ids):
+def scrape_page(page, browser, existing_ids, resume_skills):
 
     cards = get_cards(page)
 
@@ -180,19 +181,33 @@ def scrape_page(page, browser, existing_ids):
 
         # ---------- Full Extraction ----------
         internship = extract_full_info(card, browser)
+        print("\n========== DESCRIPTION ==========")
+        print(internship["description"])
+        print("=================================\n")
+
+        # ---------- Resume Matching ----------
+        result = match_resume_to_internship(
+            resume_skills,
+            internship["description"]
+        )
+
+        internship["match_score"] = result["score"]
+        internship["matched_skills"] = result["matched"]
+        internship["missing_skills"] = result["missing"]
+        internship["internship_skills"] = result["internship_skills"]
 
         new_internships.append(internship)
 
         print("--------------------------------")
         print(internship["title"])
         print(internship["company"])
-        print(internship["location"])
+        print("Match Score:", internship["match_score"])
         print("--------------------------------")
 
     return new_internships
 
 
-def scrape_internships(existing_ids):
+def scrape_internships(existing_ids, resume_skills):
 
     playwright, browser, page = open_browser()
 
@@ -208,7 +223,12 @@ def scrape_internships(existing_ids):
             print("Could not open page.")
             break
 
-        page_internships = scrape_page(page, browser, existing_ids)
+        page_internships = scrape_page(
+            page,
+            browser,
+            existing_ids,
+            resume_skills
+        )
 
         if len(page_internships) == 0:
             print("No new internships on this page.")
@@ -221,7 +241,6 @@ def scrape_internships(existing_ids):
     close_browser(playwright, browser)
 
     return all_new_internships
-
 
 
 def get_internship_description(browser, link):

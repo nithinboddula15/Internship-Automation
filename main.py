@@ -5,10 +5,21 @@ from scraper import scrape_internships
 
 from email_sender import send_email
 
+from resume_engine import load_resume_skills
+
+
+RESUME_PATH = "resume/Nithin Boddula _ ML_Resume.pdf"
+
+
+resume_skills = load_resume_skills(RESUME_PATH)
+
 
 old_df, existing_ids = load_existing_data()
 
-new_internships = scrape_internships(existing_ids)
+new_internships = scrape_internships(
+    existing_ids,
+    resume_skills
+)
 
 df, final_df = save_new_data(old_df, new_internships)
 
