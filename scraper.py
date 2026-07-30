@@ -6,6 +6,7 @@ from filters import recent_post
 from resume_engine import match_resume_to_internship
 # pyrefly: ignore [missing-import]
 from playwright.sync_api import TimeoutError
+from recommendation import generate_recommendation
 import time
 
 def extract_basic_info(card):
@@ -195,6 +196,12 @@ def scrape_page(page, browser, existing_ids, resume_skills):
         internship["matched_skills"] = result["matched"]
         internship["missing_skills"] = result["missing"]
         internship["internship_skills"] = result["internship_skills"]
+        recommendation = generate_recommendation(
+            internship["match_score"]
+        )
+
+        internship["recommendation_status"] = recommendation["status"]
+        internship["recommendation_message"] = recommendation["message"]
 
         new_internships.append(internship)
 
@@ -202,6 +209,7 @@ def scrape_page(page, browser, existing_ids, resume_skills):
         print(internship["title"])
         print(internship["company"])
         print("Match Score:", internship["match_score"])
+        print(internship["recommendation_status"])
         print("--------------------------------")
 
     return new_internships
