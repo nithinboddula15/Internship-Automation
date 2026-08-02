@@ -3,10 +3,9 @@ from playwright.sync_api import sync_playwright
 
 from filters import role_matches
 from filters import recent_post
-from resume_engine import match_resume_to_internship
+from matcher import match_resume_to_internship
 # pyrefly: ignore [missing-import]
 from playwright.sync_api import TimeoutError
-from recommendation import generate_recommendation
 import time
 
 def extract_basic_info(card):
@@ -149,7 +148,13 @@ def extract_full_info(card, browser):
         "description": description
     }
 
-def scrape_page(page, browser, existing_ids, resume_skills):
+def scrape_page(
+    page,
+    browser,
+    existing_ids,
+    resume_text,
+    resume_skills
+):
 
     cards = get_cards(page)
 
@@ -188,20 +193,19 @@ def scrape_page(page, browser, existing_ids, resume_skills):
 
         # ---------- Resume Matching ----------
         result = match_resume_to_internship(
-            resume_skills,
-            internship["description"]
+            resume_skills=resume_skills,
+            internship_skills=internship["skills"],
+            resume_text=resume_text,
+            internship=internship
         )
 
-        internship["match_score"] = result["score"]
-        internship["matched_skills"] = result["matched"]
-        internship["missing_skills"] = result["missing"]
+        internship["match_score"] = result["match_score"]
+        internship["matched_skills"] = result["matched_skills"]
+        internship["missing_skills"] = result["missing_skills"]
         internship["internship_skills"] = result["internship_skills"]
-        recommendation = generate_recommendation(
-            internship["match_score"]
-        )
-
-        internship["recommendation_status"] = recommendation["status"]
-        internship["recommendation_message"] = recommendation["message"]
+        internship["recommendation_status"] = result["recommendation_status"]
+        internship["ai_reason"] = result["ai_reason"]
+        internship["application_advice"] = result["application_advice"]
 
         new_internships.append(internship)
 
@@ -215,7 +219,11 @@ def scrape_page(page, browser, existing_ids, resume_skills):
     return new_internships
 
 
-def scrape_internships(existing_ids, resume_skills):
+def scrape_internships(
+    existing_ids,
+    resume_text,
+    resume_skills
+):
 
     playwright, browser, page = open_browser()
 
@@ -235,6 +243,7 @@ def scrape_internships(existing_ids, resume_skills):
             page,
             browser,
             existing_ids,
+            resume_text,
             resume_skills
         )
 

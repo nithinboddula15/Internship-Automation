@@ -19,9 +19,11 @@ Docker
 """
 }
 
-print(
-    semantic_match(
-        resume,
-        internship
-    )
+result = semantic_match(
+    resume,
+    internship
 )
+
+print(result)
+
+print(type(result))
