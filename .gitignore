@@ -1,14 +1,28 @@
+# Virtual Environment
 venv/
+
+# Python
 __pycache__/
 *.pyc
 
+# VS Code
+.vscode/
+
+# Environment Variables
+.env
+config_local.py
+
+# User Data
 resume/
 data/
 
-config_local.py
+# Logs
+logs/
 
+# Test Files
+test_*.py
 mail1.py
-test_resume.py
 
-.vscode/
-.env
+# Operating System
+.DS_Store
+Thumbs.db

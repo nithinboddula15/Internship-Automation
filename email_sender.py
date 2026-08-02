@@ -3,6 +3,7 @@ from email.message import EmailMessage
 from datetime import datetime
 
 from config_local import sender_email, receiver_email, app_password
+from logger import logger
 
 
 # ──────────────────────────────────────────────
@@ -273,7 +274,7 @@ def build_email_body(internships):
 
 def send_email(internships):
     if not internships:
-        print("No internships to email.")
+        logger.info("No internships to email.")
         return
 
     try:
@@ -295,7 +296,7 @@ def send_email(internships):
             smtp.login(sender_email, app_password)
             smtp.send_message(message)
 
-        print("✅ Email sent successfully!")
+        logger.info("Email sent successfully!")
 
     except Exception as e:
-        print(f"❌ Email could not be sent: {e}")
+        logger.error(f"Email could not be sent: {e}")

@@ -1,8 +1,8 @@
 from resume_parser import extract_resume_text
 from skill_extractor import load_skill_database, extract_skills
 from resume_matcher import calculate_match_score
-from matcher import semantic_match
-from matcher import match_resume_to_internship  
+from matcher import semantic_match, get_ai_skill_weights
+from logger import logger
 
 
 # Load once
@@ -28,14 +28,25 @@ def match_resume_to_internship(
     internship=None
 ):
 
-    # ---------- Fast Keyword Match ----------
+    # ---------- AI Skill Weights ----------
+    # Gemini assigns a 1-10 importance score to each internship skill
+    # in the context of the candidate's resume.
+
+    logger.info("Requesting AI skill weights from Gemini...")
+
+    ai_skill_weights = get_ai_skill_weights(resume_skills, internship_skills)
+
+    logger.info(f"AI Skill Weights: {ai_skill_weights}")
+
+    # ---------- Weighted Keyword Match ----------
 
     score, matched, missing = calculate_match_score(
         resume_skills,
-        internship_skills
+        internship_skills,
+        ai_skill_weights=ai_skill_weights
     )
 
-    # ----------- LOW SCORE -------------
+    # ----------- LOW SCORE (skip AI semantic) -------------
 
     if score < 30:
 
@@ -46,13 +57,37 @@ def match_resume_to_internship(
             "missing_skills": missing,
             "internship_skills": internship_skills,
             "ai_reason": [
-                "Skipped AI because keyword score is below 30%."
+                "Skipped AI because weighted keyword score is below 30%."
             ],
             "application_advice":
             "Not enough matching skills. Learn the missing skills first."
         }
 
-    # ----------- AI MATCH -------------
+    # ----------- AI Semantic Match -------------
+
+    if resume_text is None or internship is None:
+
+        # Inline status when AI semantic match is skipped
+        if score >= 90:
+            status = "Excellent Match"
+        elif score >= 75:
+            status = "Strong Match"
+        elif score >= 60:
+            status = "Good Match"
+        elif score >= 40:
+            status = "Average Match"
+        else:
+            status = "Weak Match"
+
+        return {
+            "match_score": score,
+            "recommendation_status": status,
+            "matched_skills": matched,
+            "missing_skills": missing,
+            "internship_skills": internship_skills,
+            "ai_reason": [],
+            "application_advice": ""
+        }
 
     ai_result = semantic_match(
         resume_text,

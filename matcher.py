@@ -1,8 +1,8 @@
 from google import genai
 from google.genai.errors import ClientError
 from config_local import gemini_api_key
-from recommendation import generate_recommendation
 import json
+from logger import logger
 
 client = genai.Client(api_key=gemini_api_key)
 
@@ -39,7 +39,7 @@ def call_gemini_api(client, prompt):
     try:
 
         response = client.models.generate_content(
-            model="models/gemini-3.5-flash",
+            model="gemini-flash-lite-latest",
             contents=prompt
         )
 
@@ -47,7 +47,7 @@ def call_gemini_api(client, prompt):
 
     except json.JSONDecodeError:
 
-        print("Gemini returned invalid JSON.")
+        logger.error("Gemini returned invalid JSON.")
 
         return {
             "match_score": 0,
@@ -60,7 +60,7 @@ def call_gemini_api(client, prompt):
 
     except ClientError as e:
 
-        print(f"Gemini API quota exceeded or unavailable: {e}")
+        logger.error(f"Gemini API quota exceeded or unavailable: {e}")
 
         return {
             "match_score": 0,
@@ -73,7 +73,7 @@ def call_gemini_api(client, prompt):
 
     except Exception as e:
 
-        print(f"Unexpected Error: {e}")
+        logger.error(f"Unexpected Error: {e}")
 
         return {
             "match_score": 0,
@@ -83,6 +83,56 @@ def call_gemini_api(client, prompt):
             "ai_reason": [str(e)],
             "application_advice": ""
         }
+
+
+def get_ai_skill_weights(resume_skills, internship_skills):
+
+    if not internship_skills:
+        return {}
+
+    prompt = f"""You are a technical recruiter evaluating skill importance.
+
+Given the candidate's resume skills and the internship's required skills,
+assign an importance weight (1 to 10) to EACH internship skill,
+where 10 = absolutely critical and 1 = barely relevant.
+
+Candidate Resume Skills:
+{", ".join(resume_skills)}
+
+Internship Required Skills:
+{", ".join(internship_skills)}
+
+Return ONLY valid JSON. No markdown. No explanation.
+
+Return exactly this format (one entry per internship skill):
+
+{{
+    "skill_name_1": 8,
+    "skill_name_2": 5,
+    "skill_name_3": 3
+}}
+"""
+
+    try:
+
+        response = client.models.generate_content(
+            model="gemini-flash-lite-latest",
+            contents=prompt
+        )
+
+        weights = json.loads(response.text)
+
+        # Normalise: lower-case keys, clamp values 1-10
+        return {
+            k.lower(): max(1, min(10, int(v)))
+            for k, v in weights.items()
+        }
+
+    except Exception as e:
+
+        logger.error(f"Skill weight AI call failed: {e}. Using default weight 1.")
+
+        return {skill.lower(): 1 for skill in internship_skills}
 
 
 def semantic_match(resume_text, internship):
@@ -145,9 +195,20 @@ def match_resume_to_internship(
 
     if resume_text is None or internship is None:
 
+        if score >= 90:
+            status = "Excellent Match"
+        elif score >= 75:
+            status = "Strong Match"
+        elif score >= 60:
+            status = "Good Match"
+        elif score >= 40:
+            status = "Average Match"
+        else:
+            status = "Weak Match"
+
         return {
             "match_score": score,
-            "recommendation_status": generate_recommendation(score)["status"],
+            "recommendation_status": status,
             "matched_skills": matched,
             "missing_skills": missing,
             "ai_reason": [],

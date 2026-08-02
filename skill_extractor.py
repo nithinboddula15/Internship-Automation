@@ -1,23 +1,40 @@
+import re
+
+from logger import logger
+
+
 def load_skill_database(file_path="skills.txt"):
 
-    with open(file_path, "r", encoding="utf-8") as file:
+    try:
 
-        skills = [
-            skill.strip().lower()
-            for skill in file.readlines()
-            if skill.strip()
-        ]
+        with open(file_path, "r", encoding="utf-8") as f:
+            skills = [
+                skill.strip().lower()
+                for skill in f.readlines()
+                if skill.strip()
+            ]
 
-    return skills
+        logger.info(f"Skill database loaded: {len(skills)} skills from '{file_path}'.")
+        return skills
 
+    except FileNotFoundError:
 
-import re
+        logger.error(f"Skills file not found: '{file_path}'. Returning empty list.")
+        return []
+
+    except Exception as e:
+
+        logger.error(f"Error loading skill database: {e}. Returning empty list.")
+        return []
 
 
 def extract_skills(text, skill_database):
 
-    text = text.lower()
+    if not text:
+        logger.warning("extract_skills: received empty text. Returning no skills.")
+        return []
 
+    text = text.lower()
     found_skills = []
 
     for skill in skill_database:
@@ -25,8 +42,9 @@ def extract_skills(text, skill_database):
         pattern = r"\b" + re.escape(skill) + r"\b"
 
         if re.search(pattern, text):
-
             found_skills.append(skill)
 
-    return sorted(list(set(found_skills)))
-    
+    result = sorted(set(found_skills))
+
+    logger.info(f"Skills extracted from resume: {result}")
+    return result
