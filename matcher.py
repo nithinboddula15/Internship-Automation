@@ -36,117 +36,105 @@ def keyword_match(resume_skills, internship_skills):
 
 def call_gemini_api(client, prompt):
 
-    try:
+    # Retry Gemini once if JSON parsing fails
+    for attempt in range(2):
 
-        response = client.models.generate_content(
-            model="gemini-flash-lite-latest",
-            contents=prompt
-        )
+        try:
 
-        return json.loads(response.text)
+            response = client.models.generate_content(
+                model="gemini-flash-lite-latest",
+                contents=prompt
+            )
 
-    except json.JSONDecodeError:
+            return json.loads(response.text)
 
-        logger.error("Gemini returned invalid JSON.")
+        except json.JSONDecodeError:
 
-        return {
-            "match_score": 0,
-            "recommendation_status": "Parse Error",
-            "matched_skills": [],
-            "missing_skills": [],
-            "ai_reason": ["Gemini returned invalid JSON."],
-            "application_advice": ""
-        }
+            logger.warning(
+                f"Gemini returned invalid JSON. Retry {attempt + 1}/2"
+            )
 
-    except ClientError as e:
+            # Retry only once
+            if attempt == 0:
+                continue
 
-        logger.error(f"Gemini API quota exceeded or unavailable: {e}")
+            logger.error("Gemini returned invalid JSON after 2 attempts.")
 
-        return {
-            "match_score": 0,
-            "recommendation_status": "API Error",
-            "matched_skills": [],
-            "missing_skills": [],
-            "ai_reason": ["Gemini API quota exceeded or unavailable."],
-            "application_advice": ""
-        }
+            return {
+                "match_score": 0,
+                "recommendation_status": "Parse Error",
+                "matched_skills": [],
+                "missing_skills": [],
+                "strengths": [],
+                "weaknesses": [],
+                "ai_reason": [
+                    "Gemini returned invalid JSON after retry."
+                ],
+                "application_advice": ""
+            }
 
-    except Exception as e:
+        except ClientError as e:
 
-        logger.error(f"Unexpected Error: {e}")
+            logger.error(f"Gemini API quota exceeded or unavailable: {e}")
 
-        return {
-            "match_score": 0,
-            "recommendation_status": "Unknown Error",
-            "matched_skills": [],
-            "missing_skills": [],
-            "ai_reason": [str(e)],
-            "application_advice": ""
-        }
+            return {
+                "match_score": 0,
+                "recommendation_status": "API Error",
+                "matched_skills": [],
+                "missing_skills": [],
+                "strengths": [],
+                "weaknesses": [],
+                "ai_reason": [
+                    "Gemini API quota exceeded or unavailable."
+                ],
+                "application_advice": ""
+            }
 
+        except Exception as e:
 
-def get_ai_skill_weights(resume_skills, internship_skills):
+            logger.error(f"Unexpected Error: {e}")
 
-    if not internship_skills:
-        return {}
+            return {
+                "match_score": 0,
+                "recommendation_status": "Unknown Error",
+                "matched_skills": [],
+                "missing_skills": [],
+                "strengths": [],
+                "weaknesses": [],
+                "ai_reason": [str(e)],
+                "application_advice": ""
+            }
 
-    prompt = f"""You are a technical recruiter evaluating skill importance.
-
-Given the candidate's resume skills and the internship's required skills,
-assign an importance weight (1 to 10) to EACH internship skill,
-where 10 = absolutely critical and 1 = barely relevant.
-
-Candidate Resume Skills:
-{", ".join(resume_skills)}
-
-Internship Required Skills:
-{", ".join(internship_skills)}
-
-Return ONLY valid JSON. No markdown. No explanation.
-
-Return exactly this format (one entry per internship skill):
-
-{{
-    "skill_name_1": 8,
-    "skill_name_2": 5,
-    "skill_name_3": 3
-}}
-"""
-
-    try:
-
-        response = client.models.generate_content(
-            model="gemini-flash-lite-latest",
-            contents=prompt
-        )
-
-        weights = json.loads(response.text)
-
-        # Normalise: lower-case keys, clamp values 1-10
-        return {
-            k.lower(): max(1, min(10, int(v)))
-            for k, v in weights.items()
-        }
-
-    except Exception as e:
-
-        logger.error(f"Skill weight AI call failed: {e}. Using default weight 1.")
-
-        return {skill.lower(): 1 for skill in internship_skills}
 
 
 def semantic_match(resume_text, internship):
 
     prompt = f"""
-You are an expert technical recruiter.
+You are a Senior Technical Recruiter with expertise in hiring interns for AI, Machine Learning, Data Science, and Software Engineering roles.
 
-Evaluate how well the candidate matches this internship.
+Your task is to evaluate how well the candidate matches this internship.
+
+Evaluate using ALL of the following:
+
+1. Resume skills
+2. Resume projects and practical experience
+3. Internship required skills
+4. Internship description
+5. Overall career relevance
+
+Scoring Rules:
+
+90-100 : Excellent Match
+75-89  : Strong Match
+60-74  : Good Match
+40-59  : Average Match
+0-39   : Weak Match
 
 Resume:
 
 {resume_text}
 
-----------------------------------------------------
+------------------------------------------------------------
 
 Internship Title:
 {internship["title"]}
@@ -154,13 +142,15 @@ Internship Title:
 Company:
 {internship["company"]}
 
-Description:
+Internship Description:
 {internship["description"]}
+
+------------------------------------------------------------
 
 Return ONLY valid JSON.
 
-Do NOT use markdown.
-Do NOT wrap the JSON in ```json.
+Do NOT return markdown.
+Do NOT return explanations outside JSON.
 
 Return exactly this format:
 
@@ -169,11 +159,11 @@ Return exactly this format:
     "recommendation_status": "",
     "matched_skills": [],
     "missing_skills": [],
-    "ai_reason": [],
+    "strengths": [],
+    "weaknesses": [],
     "application_advice": ""
 }}
 """
-
     return call_gemini_api(client, prompt)
 
 
@@ -219,10 +209,13 @@ def match_resume_to_internship(
     # ---------- AI Semantic Matching ----------
 
     ai_result = semantic_match(
-        resume_text,
-        internship
-    )
+    resume_text,
+    internship
+)
 
+# Python is the source of truth
+    ai_result["matched_skills"] = matched
+    ai_result["missing_skills"] = missing
     ai_result["internship_skills"] = internship_skills
 
     return ai_result

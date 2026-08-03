@@ -4,12 +4,19 @@ from playwright.sync_api import sync_playwright, TimeoutError
 import time
 
 from logger import logger
-from filters import role_matches, recent_post
+from filters import quick_filter, recent_post
 from matcher import match_resume_to_internship
 from ai_cache import load_cache, save_cache, get_cached_result, cache_result
-from career import MAX_POSTED_DAYS
+from career import MAX_EMPTY_PAGES
+RETRY_DELAY = 3  # seconds
 
-MAX_EMPTY_PAGES = 5
+from title_classifier import classify_title
+from title_cache import (
+    load_title_cache,
+    save_title_cache,
+    get_cached_title,
+    cache_title
+)
 
 
 # ==================================================
@@ -29,9 +36,10 @@ def open_browser():
     return playwright, browser, page
 
 
-def close_browser(playwright, browser):
+def close_browser(playwright, browser, pause=False):
 
-    input("Press Enter to close browser...")
+    if pause:
+        input("Press Enter to close browser...")
     browser.close()
     playwright.stop()
 
@@ -67,12 +75,12 @@ def open_page(page, page_number):
                 f"Timeout on page {page_number}. "
                 f"Attempt {attempt}/3. Retrying..."
             )
-            time.sleep(3)
+            time.sleep(RETRY_DELAY)
 
         except Exception as e:
 
             logger.error(f"Error opening page {page_number}: {e}. Attempt {attempt}/3.")
-            time.sleep(3)
+            time.sleep(RETRY_DELAY)
 
     logger.error(f"Failed to open page {page_number} after 3 attempts.")
     return False
@@ -195,7 +203,7 @@ def get_internship_description(browser, link):
 # Page scraper
 # ==================================================
 
-def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache):
+def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache, title_cache):
 
     cards = get_cards(page)
     total_cards = cards.count()
@@ -218,9 +226,43 @@ def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache):
                 continue
 
             # Role filter
-            if not role_matches(basic["title"]):
-                logger.info(f"Skipped '{basic['title']}' - Role not matched.")
-                continue
+            # ---------- Role Filter ----------
+
+            if quick_filter(basic["title"]):
+
+                logger.info(f"Quick filter passed: '{basic['title']}'")
+
+            else:
+
+                cached = get_cached_title(title_cache, basic["title"])
+
+                if cached:
+
+                    logger.info(
+                        f"Title cache hit: '{basic['title']}'"
+                    )
+
+                    relevant = cached["is_relevant"]
+
+                else:
+
+                    logger.info(
+                        f"AI classifying title: '{basic['title']}'"
+                    )
+
+                    result = classify_title(basic["title"])
+
+                    cache_title(title_cache, basic["title"], result)
+
+                    relevant = result["is_relevant"]
+
+                if not relevant:
+
+                    logger.info(
+                        f"Skipped '{basic['title']}' - AI marked as irrelevant."
+                    )
+
+                    continue
 
             # Posted time filter
             if basic["posted_time"] is None:
@@ -263,23 +305,32 @@ def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache):
                     internship=internship
                 )
 
-                if result["recommendation_status"] not in ("API Error", "Unknown Error"):
+                status = result.get("recommendation_status", "")
+
+                if status not in (
+                    "API Error",
+                    "Unknown Error",
+                    "Parse Error"
+                ):
+
                     cache_result(cache, internship["internship_id"], result)
                     logger.info("Result cached.")
+
                 else:
+
                     logger.warning(
-                        f"Result NOT cached due to status: "
-                        f"{result['recommendation_status']}"
-                    )
+                        f"Result NOT cached due to status: {status}"
+    )
 
             # ---------- Attach results ----------
-            internship["match_score"] = result["match_score"]
-            internship["matched_skills"] = result["matched_skills"]
-            internship["missing_skills"] = result["missing_skills"]
+            internship["match_score"] = result.get("match_score", 0)
+            internship["matched_skills"] = result.get("matched_skills", [])
+            internship["missing_skills"] = result.get("missing_skills", [])
             internship["internship_skills"] = result.get("internship_skills", [])
-            internship["recommendation_status"] = result["recommendation_status"]
-            internship["ai_reason"] = result["ai_reason"]
-            internship["application_advice"] = result["application_advice"]
+            internship["recommendation_status"] = result.get("recommendation_status", "Unknown Error")
+            internship["strengths"] = result.get("strengths", [])
+            internship["weaknesses"] = result.get("weaknesses", [])
+            internship["application_advice"] = result.get("application_advice", "")
 
             new_internships.append(internship)
 
@@ -310,6 +361,9 @@ def scrape_internships(existing_ids, resume_text, resume_skills):
     cache = load_cache()
     logger.info(f"Cache loaded. {len(cache)} cached results.")
 
+    title_cache = load_title_cache()
+    logger.info(f"Title cache loaded. {len(title_cache)} cached titles.")
+
     playwright, browser, page = open_browser()
 
     all_new_internships = []
@@ -334,7 +388,8 @@ def scrape_internships(existing_ids, resume_text, resume_skills):
                 existing_ids,
                 resume_text,
                 resume_skills,
-                cache
+                cache,
+                title_cache
             )
 
             # ---------- Empty page tracking ----------
@@ -374,6 +429,9 @@ def scrape_internships(existing_ids, resume_text, resume_skills):
 
         save_cache(cache)
         logger.info(f"Cache saved. {len(cache)} total entries.")
+
+        save_title_cache(title_cache)
+        logger.info(f"Title cache saved. {len(title_cache)} total entries.")
 
         close_browser(playwright, browser)
 

@@ -5,9 +5,9 @@ from excel_manager import load_existing_data, save_new_data
 from scraper import scrape_internships
 from email_sender import send_email
 from resume_engine import load_resume
+from config import RESUME_PATH
 
 
-RESUME_PATH = "resume/Nithin Boddula _ ML_Resume.pdf"
 
 
 def main():

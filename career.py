@@ -1,58 +1,54 @@
 # ==========================
-# Career Goal
+# Quick Filter Keywords
+# Used before AI matching
 # ==========================
 
-CAREER_FIELD = "Machine Learning / AI / Data Science"
+QUICK_FILTER_KEYWORDS =  QUICK_FILTER_KEYWORDS = {
 
+    "AI": [
+        "ai",
+        "artificial intelligence",
+        "machine learning",
+        "deep learning",
+        "computer vision",
+        "nlp",
+        "llm",
+        "genai",
+    ],
 
+    "Data": [
+        "data science",
+        "data scientist",
+        "data analyst",
+        "analytics",
+    ],
 
+    "Python": [
+        "python",
+    ],
+
+    "Research": [
+        "research",
+        "research intern",
+        "research associate",
+    ],
+
+    "Automation": [
+        "automation",
+        "ai agent",
+        "agent",
+    ]
+}
 
 # ==========================
-# Preferred Roles
+# Internship Preferences
 # ==========================
-QUICK_FILTER_KEYWORDS = [
-
-    "machine learning",
-
-    "artificial intelligence",
-
-    "ai",
-
-    "data science",
-
-    "data analyst",
-
-    "python",
-
-    "computer vision",
-
-    "deep learning",
-
-    "nlp",
-
-    "llm",
-
-    "genai",
-
-    "agent",
-
-]
-
-
-# ==========================
-# Skill Importance
-# Higher number = More important
-# ==========================
-
 
 MINIMUM_STIPEND = 0
 
 REMOTE_ALLOWED = True
-
 HYBRID_ALLOWED = True
-
 ONSITE_ALLOWED = True
-
 
 # ==========================
 # Preferred Locations
@@ -66,3 +62,5 @@ PREFERRED_LOCATIONS = []
 # ==========================
 
 MAX_POSTED_DAYS = 7
+
+MAX_EMPTY_PAGES = 5
