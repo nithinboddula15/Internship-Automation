@@ -18,7 +18,9 @@ def load_title_cache():
 
     try:
 
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:        
 
             cache = json.load(f)
 
@@ -26,11 +28,13 @@ def load_title_cache():
 
         return cache
 
-    except Exception as e:
-
-        logger.error(f"Failed to load title cache: {e}")
-
+    except json.JSONDecodeError:
+        logger.error("Title cache is corrupted. Starting fresh.")
         return {}
+
+    except Exception as e:
+        logger.error(f"Failed to load title cache: {e}")
+        return {}   
 
 
 def get_cached_title(cache, title):

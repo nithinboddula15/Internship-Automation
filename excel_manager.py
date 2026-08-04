@@ -18,7 +18,17 @@ def load_existing_data():
         logger.info(f"Loaded {len(old_df)} existing rows.")
         logger.info(f"Columns: {old_df.columns.tolist()}")
 
-        existing_ids = old_df["internship_id"].tolist()
+        if "internship_id" in old_df.columns:
+
+                existing_ids = old_df["internship_id"].tolist()
+
+        else:
+
+            logger.warning(
+                "'internship_id' column missing. Starting with empty IDs."
+    )
+
+            existing_ids = []
 
         logger.info(f"Existing internship IDs count: {len(existing_ids)}")
 
@@ -69,15 +79,35 @@ def save_new_data(old_df, new_internships):
                     lambda x: ", ".join(x) if isinstance(x, list) else x
                 )
 
-    final_df = pd.concat([old_df, df], ignore_index=True)
+    final_df = pd.concat(
+    [old_df, df],
+    ignore_index=True
+)
+
+    if "internship_id" in final_df.columns:
+
+        final_df = final_df.drop_duplicates(
+            subset="internship_id",
+            keep="first"
+        )   
 
     # Sort by match_score descending before saving
     if "match_score" in final_df.columns:
 
-        final_df = final_df.sort_values(
-            by="match_score",
-            ascending=False
-        ).reset_index(drop=True)
+        sort_columns = []
+
+        if "match_score" in final_df.columns:
+            sort_columns.append("m atch_score")
+
+        if "internship_id" in final_df.columns:
+            sort_columns.append("internship_id")
+
+        if sort_columns:
+
+            final_df = final_df.sort_values(
+                by=sort_columns,
+                ascending=[False, False]
+            ).reset_index(drop=True)
 
     try:
 
@@ -93,3 +123,21 @@ def save_new_data(old_df, new_internships):
         logger.error(f"Failed to save Excel file: {e}")
 
     return df, final_df
+
+def stringify_lists(df, columns):
+
+    if df.empty:
+        return df
+
+    for col in columns:
+
+        if col in df.columns:
+
+            df[col] = df[col].apply(
+                lambda x: ", ".join(x)
+                if isinstance(x, list)
+                else x
+            )
+
+    return df
+

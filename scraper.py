@@ -4,14 +4,19 @@ from playwright.sync_api import sync_playwright, TimeoutError
 import time
 
 from logger import logger
-from filters import quick_filter, recent_post
 from matcher import match_resume_to_internship
-from ai_cache import load_cache, save_cache, get_cached_result, cache_result
+from cache.ai_cache import load_cache, save_cache, get_cached_result, cache_result
 from career import MAX_EMPTY_PAGES
 RETRY_DELAY = 3  # seconds
 
+from filters import (
+    quick_filter,
+    recent_post,
+    skill_overlap
+)
+
 from title_classifier import classify_title
-from title_cache import (
+from cache.title_cache import (
     load_title_cache,
     save_title_cache,
     get_cached_title,
@@ -53,9 +58,9 @@ def close_browser(playwright, browser, pause=False):
 def open_page(page, page_number):
 
     if page_number == 1:
-        url = "https://internshala.com/internships/machine-learning-internship/"
+        url = "https://internshala.com/internships/ai-agent-development,artificial-intelligence-ai,cloud-computing,data-science,java,machine-learning,python-django,software-development-internship/"
     else:
-        url = f"https://internshala.com/internships/machine-learning-internship/page-{page_number}/"
+        url = f"https://internshala.com/internships/ai-agent-development,artificial-intelligence-ai,cloud-computing,data-science,java,machine-learning,python-django,software-development-internship/page-{page_number}/"
 
     logger.info(f"Opening Page {page_number}: {url}")
 
@@ -131,15 +136,16 @@ def extract_basic_info(card):
     internship_id = int(card.get_attribute("internshipid"))
     title = card.locator(".job-title-href").inner_text().lower()
     posted_time = get_posted_time(card)
+    skills = card.locator(".job_skill").all_inner_texts()
 
     return {
         "internship_id": internship_id,
         "title": title,
-        "posted_time": posted_time
+        "posted_time": posted_time,
+        "skills": skills if skills else [], 
     }
 
 
-# pyrefly: ignore [parse-error]
 def extract_full_info(card, browser):
 
     internship_id = int(card.get_attribute("internshipid"))
@@ -203,7 +209,16 @@ def get_internship_description(browser, link):
 # Page scraper
 # ==================================================
 
-def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache, title_cache):
+def scrape_page(
+    page,
+    browser,
+    existing_ids,
+    resume_text,
+    resume_skills,
+    cache,
+    title_cache,
+    stats
+):
 
     cards = get_cards(page)
     total_cards = cards.count()
@@ -211,26 +226,58 @@ def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache, 
 
     logger.info(f"Found {total_cards} cards on this page.")
 
+    stats["cards_seen"] += total_cards
+
     for i in range(total_cards):
 
         card = cards.nth(i)
 
         try:
 
-            # ---------- Basic Info ----------
+            # ===================================
+            # BASIC INFO
+            # ===================================
+
             basic = extract_basic_info(card)
 
-            # Duplicate check
-            if basic["internship_id"] in existing_ids:
-                logger.info(f"Skipped '{basic['title']}' - Duplicate.")
+            if basic is None:
                 continue
 
-            # Role filter
-            # ---------- Role Filter ----------
+            # -----------------------------------
+            # Duplicate
+            # -----------------------------------
 
-            if quick_filter(basic["title"]):
+            if basic["internship_id"] in existing_ids:
 
-                logger.info(f"Quick filter passed: '{basic['title']}'")
+                stats["duplicates"] += 1
+
+                logger.info(
+                    f"Skipped '{basic['title']}' - Duplicate."
+                )
+
+                continue
+
+            # -----------------------------------
+            # Quick Filter
+            # -----------------------------------
+
+            filter_result = quick_filter(basic["title"])
+
+            if filter_result is False:
+
+                stats["quick_filter"] += 1
+
+                logger.info(
+                    f"Skipped '{basic['title']}' - Negative filter."
+                )
+
+                continue
+
+            elif filter_result is True:
+
+                logger.info(
+                    f"Quick filter passed: '{basic['title']}'"
+                )
 
             else:
 
@@ -261,40 +308,90 @@ def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache, 
                     logger.info(
                         f"Skipped '{basic['title']}' - AI marked as irrelevant."
                     )
-
                     continue
+    
 
-            # Posted time filter
+            # -----------------------------------
+            # Posted Time
+            # -----------------------------------
+
             if basic["posted_time"] is None:
-                logger.info(f"Skipped card {i} - No posted time.")
+
+                logger.info(
+                    f"Skipped card {i} - No posted time."
+                )
+
                 continue
 
             if not recent_post(basic["posted_time"]):
+
+                stats["old_posts"] += 1
+
                 logger.info(
-                    f"Skipped '{basic['title']}' - "
-                    f"Posted {basic['posted_time']} (too old)."
+                    f"Skipped '{basic['title']}' - Too old."
                 )
+
                 continue
 
-            # ---------- Full Extraction ----------
-            logger.info(f"Processing: '{basic['title']}'")
-            internship = extract_full_info(card, browser)
+            # -----------------------------------
+            # Skill Overlap
+            # -----------------------------------
 
-            # ---------- AI Match (with cache) ----------
-            cached_result = get_cached_result(cache, internship["internship_id"])
+            if not skill_overlap(
+                basic["skills"],
+                resume_skills
+            ):
+
+                stats["skill_filter"] += 1
+
+                logger.info(
+                    f"Skipped '{basic['title']}' - No matching skills."
+                )
+
+                continue
+
+            # ===================================
+            # FULL EXTRACTION
+            # ===================================
+
+            logger.info(
+                f"Processing: '{basic['title']}'"
+            )
+            
+
+            internship = extract_full_info(
+                card,
+                browser
+            )
+           
+            # ===================================
+            # AI CACHE
+            # ===================================
+
+           
+
+            cache_key = get_cache_key(internship)
+
+            cached_result = get_cached_result(cache, cache_key)
 
             if cached_result:
+
+                stats["cache_hits"] += 1
 
                 logger.info(
                     f"Cache hit for '{internship['title']}' "
                     f"(id={internship['internship_id']})"
                 )
+
                 result = cached_result
 
             else:
 
+                stats["gemini_calls"] += 1
+
                 logger.info(
-                    f"Calling Gemini for '{internship['title']}' "
+                    f"Calling Gemini for "
+                    f"'{internship['title']}' "
                     f"(id={internship['internship_id']})..."
                 )
 
@@ -305,7 +402,29 @@ def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache, 
                     internship=internship
                 )
 
-                status = result.get("recommendation_status", "")
+                status = result.get(
+                    "recommendation_status",
+                    ""
+                )
+
+                if status in (
+                    "API Error",
+                    "Parse Error",
+                    "Unknown Error"
+                ):
+
+                    logger.warning("Retrying Gemini...")
+
+                    time.sleep(3)
+
+                    result = match_resume_to_internship(
+                        resume_skills=resume_skills,
+                        internship_skills=internship["skills"],
+                        resume_text=resume_text,
+                        internship=internship
+                    )
+
+                    status = result.get("recommendation_status", "")
 
                 if status not in (
                     "API Error",
@@ -313,41 +432,116 @@ def scrape_page(page, browser, existing_ids, resume_text, resume_skills, cache, 
                     "Parse Error"
                 ):
 
-                    cache_result(cache, internship["internship_id"], result)
+                    cache_result(cache, cache_key, result)
+                    
+
                     logger.info("Result cached.")
 
                 else:
 
                     logger.warning(
                         f"Result NOT cached due to status: {status}"
-    )
+                    )
 
-            # ---------- Attach results ----------
-            internship["match_score"] = result.get("match_score", 0)
-            internship["matched_skills"] = result.get("matched_skills", [])
-            internship["missing_skills"] = result.get("missing_skills", [])
-            internship["internship_skills"] = result.get("internship_skills", [])
-            internship["recommendation_status"] = result.get("recommendation_status", "Unknown Error")
-            internship["strengths"] = result.get("strengths", [])
-            internship["weaknesses"] = result.get("weaknesses", [])
-            internship["application_advice"] = result.get("application_advice", "")
+                    result = {
+    "match_score": 0,
+    "recommendation_status": "API Error",
+    "matched_skills": [],
+    "missing_skills": [],
+    "strengths": [],
+    "weaknesses": [],
+    "application_advice": ""
+}
+
+                    logger.warning("Gemini unavailable.")
+
+                    
+
+            # ===================================
+            # STORE RESULTS
+            # ===================================
+
+            internship["match_score"] = result.get(
+                "match_score",
+                0
+            )
+
+            internship["matched_skills"] = result.get(
+                "matched_skills",
+                []
+            )
+
+            internship["missing_skills"] = result.get(
+                "missing_skills",
+                []
+            )
+
+            internship["internship_skills"] = result.get(
+                "internship_skills",
+                []
+            )
+
+            internship["recommendation_status"] = result.get(
+                "recommendation_status",
+                "Unknown Error"
+            )
+
+            internship["strengths"] = result.get(
+                "strengths",
+                []
+            )
+
+            internship["weaknesses"] = result.get(
+                "weaknesses",
+                []
+            )
+
+            internship["application_advice"] = result.get(
+                "application_advice",
+                ""
+            )
 
             new_internships.append(internship)
 
+            stats["new_internships"] += 1
+
             logger.info(
-                f"✔ '{internship['title']}' | {internship['company']} | "
+                f"✔ '{internship['title']}' | "
+                f"{internship['company']} | "
                 f"Score: {internship['match_score']}% | "
                 f"{internship['recommendation_status']}"
             )
 
         except Exception as e:
 
-            logger.error(f"Error processing card {i}: {e}", exc_info=True)
+            logger.error(
+                f"Error processing card {i}: {e}",
+                exc_info=True
+            )
+
             continue
 
-    logger.info(f"Page done. {len(new_internships)} internship(s) collected.")
+    logger.info(
+        f"Page done. {len(new_internships)} internship(s) collected."
+    )
+
     return new_internships
 
+# ==========================================
+# Cache helper
+# ==========================================
+def get_cache_key(internship):
+
+    internship_id = internship.get("internship_id")
+
+    if internship_id:
+        return str(internship_id)
+
+    return (
+        internship["title"].strip().lower()
+        + "|"
+        + internship["company"].strip().lower()
+    )
 
 # ==================================================
 # Main entry point
@@ -358,15 +552,33 @@ def scrape_internships(existing_ids, resume_text, resume_skills):
     logger.info("Scraper started.")
     logger.info(f"Existing IDs in database: {len(existing_ids)}")
 
+    # -----------------------------
+    # Load caches
+    # -----------------------------
     cache = load_cache()
-    logger.info(f"Cache loaded. {len(cache)} cached results.")
+    logger.info(f"Cache loaded. {len(cache)} cached AI results.")
 
     title_cache = load_title_cache()
-    logger.info(f"Title cache loaded. {len(title_cache)} cached titles.")
+    logger.info(f"Title cache loaded. {len(title_cache)} entries.")
+
+    # -----------------------------
+    # Statistics
+    # -----------------------------
+    stats = {
+        "cards_seen": 0,
+        "duplicates": 0,
+        "quick_filter": 0,
+        "old_posts": 0,
+        "skill_filter": 0,
+        "cache_hits": 0,
+        "gemini_calls": 0,
+        "new_internships": 0,
+    }
 
     playwright, browser, page = open_browser()
 
     all_new_internships = []
+
     page_number = 1
     empty_pages = 0
 
@@ -376,24 +588,49 @@ def scrape_internships(existing_ids, resume_text, resume_skills):
 
             success = open_page(page, page_number)
 
+            # Skip failed page instead of stopping
             if not success:
-                logger.error(
-                    f"Could not open page {page_number}. Stopping scraper."
+                logger.warning(
+                    f"Skipping page {page_number} because it could not be opened."
                 )
-                break
 
-            page_internships = scrape_page(
-                page,
-                browser,
-                existing_ids,
-                resume_text,
-                resume_skills,
-                cache,
-                title_cache
+                page_number += 1
+                continue
+
+            page_new = scrape_page(
+                page=page,
+                browser=browser,
+                existing_ids=existing_ids,
+                resume_text=resume_text,
+                resume_skills=resume_skills,
+                cache=cache,
+                title_cache=title_cache,
+                stats=stats
             )
 
-            # ---------- Empty page tracking ----------
-            if len(page_internships) == 0:
+            if page_new:
+
+                all_new_internships.extend(page_new)
+
+                existing_ids.update(
+                    internship["internship_id"]
+                    for internship in page_new
+                )
+
+                # Save caches after every successful page
+                save_cache(cache)
+                save_title_cache(title_cache)
+
+                logger.info("Caches auto-saved.")
+
+                empty_pages = 0
+
+                logger.info(
+                    f"Page {page_number}: +{len(page_new)} internship(s). "
+                    f"Total so far: {len(all_new_internships)}"
+                )
+
+            else:
 
                 empty_pages += 1
 
@@ -402,42 +639,48 @@ def scrape_internships(existing_ids, resume_text, resume_skills):
                     f"Empty streak: {empty_pages}/{MAX_EMPTY_PAGES}"
                 )
 
-            else:
+                if empty_pages >= MAX_EMPTY_PAGES:
 
-                empty_pages = 0
-                all_new_internships.extend(page_internships)
-
-                logger.info(
-                    f"Page {page_number}: +{len(page_internships)} internship(s). "
-                    f"Total so far: {len(all_new_internships)}"
-                )
-
-            if empty_pages >= MAX_EMPTY_PAGES:
-
-                logger.info(
-                    f"{MAX_EMPTY_PAGES} consecutive empty pages. Stopping scraper."
-                )
-                break
+                    logger.info(
+                        "Reached maximum empty pages. Stopping scraper."
+                    )
+                    break
 
             page_number += 1
-
-    except Exception as e:
-
-        logger.error(f"Scraper crashed: {e}", exc_info=True)
 
     finally:
 
         save_cache(cache)
-        logger.info(f"Cache saved. {len(cache)} total entries.")
-
         save_title_cache(title_cache)
-        logger.info(f"Title cache saved. {len(title_cache)} total entries.")
 
         close_browser(playwright, browser)
+
+        logger.info("Scraper finished.")
+
+    # -----------------------------
+    # Final Statistics
+    # -----------------------------
+    logger.info("=" * 60)
+    logger.info("SCRAPING SUMMARY")
+    logger.info("=" * 60)
+
+    logger.info(f"Cards Seen          : {stats['cards_seen']}")
+    logger.info(f"Duplicates          : {stats['duplicates']}")
+    logger.info(f"Quick Filter Reject : {stats['quick_filter']}")
+    logger.info(f"Old Posts           : {stats['old_posts']}")
+    logger.info(f"Skill Filter Reject : {stats['skill_filter']}")
+    logger.info(f"Cache Hits          : {stats['cache_hits']}")
+    logger.info(f"Gemini Calls        : {stats['gemini_calls']}")
+    logger.info(f"New Internships     : {stats['new_internships']}")
+
+    logger.info("=" * 60)
 
     logger.info(
         f"Scraper finished. Total new internships collected: "
         f"{len(all_new_internships)}"
     )
+
+    for key, value in stats.items():
+        logger.info(f"{key:20}: {value}")
 
     return all_new_internships

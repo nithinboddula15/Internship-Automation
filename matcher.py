@@ -1,7 +1,8 @@
+import json
+import time
 from google import genai
 from google.genai.errors import ClientError
 from config_local import gemini_api_key
-import json
 from logger import logger
 
 client = genai.Client(api_key=gemini_api_key)
@@ -9,35 +10,34 @@ client = genai.Client(api_key=gemini_api_key)
 
 def keyword_match(resume_skills, internship_skills):
 
-    resume_skills = [skill.lower() for skill in resume_skills]
-    internship_skills = [skill.lower() for skill in internship_skills]
+    resume = {
+        skill.lower().strip()
+        for skill in resume_skills
+    }
 
-    matched_skills = []
+    internship = {
+        skill.lower().strip()
+        for skill in internship_skills
+    }
 
-    for skill in resume_skills:
-        if skill in internship_skills:
-            matched_skills.append(skill)
+    matched = sorted(resume & internship)
+    missing = sorted(internship - resume)
 
-    missing_skills = []
-
-    for skill in internship_skills:
-        if skill not in resume_skills:
-            missing_skills.append(skill)
-
-    if len(internship_skills) == 0:
+    if not internship:
         score = 0
     else:
-        score = round(
-            (len(matched_skills) / len(internship_skills)) * 100
-        )
+        score = round(len(matched) / len(internship) * 100)
 
-    return score, matched_skills, missing_skills
+    return score, matched, missing
+
+
+
+from google.genai.errors import ClientError
 
 
 def call_gemini_api(client, prompt):
 
-    # Retry Gemini once if JSON parsing fails
-    for attempt in range(2):
+    for attempt in range(2):   # First try + one retry
 
         try:
 
@@ -46,19 +46,25 @@ def call_gemini_api(client, prompt):
                 contents=prompt
             )
 
-            return json.loads(response.text)
+            text = response.text.strip()
+
+            # Remove markdown if Gemini returns it
+            if text.startswith("```json"):
+                text = text.replace("```json", "").replace("```", "").strip()
+
+            elif text.startswith("```"):
+                text = text.replace("```", "").strip()
+
+            return json.loads(text)
 
         except json.JSONDecodeError:
 
-            logger.warning(
-                f"Gemini returned invalid JSON. Retry {attempt + 1}/2"
-            )
+            logger.warning("Gemini returned invalid JSON.")
 
-            # Retry only once
             if attempt == 0:
+                logger.info("Retrying in 2 seconds...")
+                time.sleep(2)
                 continue
-
-            logger.error("Gemini returned invalid JSON after 2 attempts.")
 
             return {
                 "match_score": 0,
@@ -75,7 +81,12 @@ def call_gemini_api(client, prompt):
 
         except ClientError as e:
 
-            logger.error(f"Gemini API quota exceeded or unavailable: {e}")
+            logger.warning(f"Gemini API Error: {e}")
+
+            if attempt == 0:
+                logger.info("Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
 
             return {
                 "match_score": 0,
@@ -85,7 +96,7 @@ def call_gemini_api(client, prompt):
                 "strengths": [],
                 "weaknesses": [],
                 "ai_reason": [
-                    "Gemini API quota exceeded or unavailable."
+                    "Gemini API unavailable after retry."
                 ],
                 "application_advice": ""
             }
@@ -107,8 +118,11 @@ def call_gemini_api(client, prompt):
 
 
 
-def semantic_match(resume_text, internship):
-
+def semantic_match(
+    resume_text,
+    resume_skills,
+    internship
+):
     prompt = f"""
 You are a Senior Technical Recruiter with expertise in hiring interns for AI, Machine Learning, Data Science, and Software Engineering roles.
 
@@ -133,6 +147,9 @@ Scoring Rules:
 Resume:
 
 {resume_text}
+Resume Skills:
+
+{", ".join(internship["resume_skills"])}
 
 ------------------------------------------------------------
 
@@ -209,11 +226,12 @@ def match_resume_to_internship(
     # ---------- AI Semantic Matching ----------
 
     ai_result = semantic_match(
-    resume_text,
-    internship
-)
+        resume_text,
+        resume_skills,
+        internship
+    )
 
-# Python is the source of truth
+    # Python is the source of truth
     ai_result["matched_skills"] = matched
     ai_result["missing_skills"] = missing
     ai_result["internship_skills"] = internship_skills

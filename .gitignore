@@ -3,7 +3,8 @@ venv/
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
 
 # VS Code
 .vscode/
@@ -18,11 +19,28 @@ data/
 
 # Logs
 logs/
+*.log
 
 # Test Files
 test_*.py
 mail1.py
 
-# Operating System
+# OS Files
 .DS_Store
 Thumbs.db
+
+# Pytest
+.pytest_cache/
+
+# Mypy
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/

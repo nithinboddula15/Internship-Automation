@@ -45,11 +45,20 @@ def main():
     logger.info(f"Scraping complete. {len(new_internships)} new internship(s) found.")
 
     # ---------- Save Data ----------
-    df, final_df = save_new_data(old_df, new_internships)
+    if new_internships:
 
-    logger.info(f"Old rows : {len(old_df)}")
-    logger.info(f"New rows : {len(df)}")
-    logger.info(f"Final rows: {len(final_df)}")
+        df, final_df = save_new_data(
+            old_df,
+            new_internships
+        )
+
+        logger.info(f"Old rows : {len(old_df)}")
+        logger.info(f"New rows : {len(df)}")
+        logger.info(f"Final rows: {len(final_df)}")
+
+    else:
+
+        logger.info("No new internships. Excel not updated.")
 
     # ---------- Email Decision ----------
     if not new_internships:
@@ -77,7 +86,15 @@ def main():
             f"No excellent/strong matches. Emailing top {len(email_list)} by score."
         )
 
-    send_email(email_list)
+    try:
+
+        send_email(email_list)
+
+    except Exception as e:
+
+        logger.error(
+            f"Email sending failed: {e}"
+        )       
 
     logger.info("=" * 50)
     logger.info("Internship Automation Finished")

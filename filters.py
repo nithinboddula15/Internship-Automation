@@ -1,29 +1,35 @@
-from utils import convert_to_days
-from career import QUICK_FILTER_KEYWORDS, MAX_POSTED_DAYS
+from utils.utils import convert_to_days
+from career import QUICK_FILTER_KEYWORDS, MAX_POSTED_DAYS, NEGATIVE_KEYWORDS
 from logger import logger
-
 
 
 
 def quick_filter(title):
     """
-    Return True if the internship title contains
-    any relevant keyword.
+    Returns:
+        True   -> definitely relevant
+        False  -> definitely irrelevant
+        None   -> uncertain (use AI)
     """
 
     title_lower = title.lower()
 
-    for keyword in QUICK_FILTER_KEYWORDS:
-
+    # Reject obvious irrelevant roles
+    for keyword in NEGATIVE_KEYWORDS:
         if keyword in title_lower:
-            logger.debug(
-                f"Quick filter matched '{keyword}' in '{title}'"
-            )
-            return True
+            logger.info(f"Negative filter matched: '{title}'")
+            return False
 
-    logger.info(f"Quick filter failed: '{title}'")
-    return False
+    # Accept obvious AI/ML/Data roles
+    for category in QUICK_FILTER_KEYWORDS.values():
+        for keyword in category:
+            if keyword in title_lower:
+                logger.debug(f"Quick filter matched '{keyword}'")
+                return True
 
+    # Let AI decide
+    logger.info(f"Needs AI classification: '{title}'")
+    return None
 
 def recent_post(posted_time):
     """Return True if the internship was posted within MAX_POSTED_DAYS days."""
@@ -38,3 +44,34 @@ def recent_post(posted_time):
         )
 
     return is_recent
+
+def skill_overlap(card_skills, resume_skills):
+    """
+    Returns True if at least one skill overlaps.
+    """
+
+    if not card_skills:
+        return True
+
+    card = {
+        skill.lower().strip()
+        for skill in card_skills
+    }
+
+    resume = {
+        skill.lower().strip()
+        for skill in resume_skills
+    }
+
+    overlap = card & resume
+
+    if overlap:
+        logger.debug(
+            f"Skill overlap: {', '.join(overlap)}"
+        )
+        return True
+
+    logger.info(
+    f"No skill overlap. Internship: {', '.join(card_skills)}"
+    )
+    return False
